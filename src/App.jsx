@@ -20,16 +20,31 @@ const App = () => {
     fetchProducts();
   }, [view]); // Auto-refresh saat balik ke home
 
-  const fetchProducts = async () => {
+const fetchProducts = async () => {
     try {
       const res = await fetch(API_URL);
+      
+      // Cek kalau API-nya ngasih respon error (misal 404 atau 500)
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
       const data = await res.json();
-      setProducts(data);
+      
+      // Sabuk Pengaman: Pastikan data yang ditarik BENAR-BENAR sebuah array
+      if (Array.isArray(data)) {
+        setProducts(data);
+      } else {
+        console.error('Data dari API bukan array bro:', data);
+        setProducts([]); // Jadikan array kosong biar aman
+      }
+      
     } catch (error) {
       console.error('Error fetching products:', error);
+      setProducts([]); // Kalau gagal fetch, pastikan products tetap array kosong
     }
   };
-
+  
   // FUNGSI KOMPRESI GAMBAR SUPER CEPAT
   const compressImage = (file) => {
     return new Promise((resolve) => {
@@ -113,10 +128,15 @@ const App = () => {
     setView('detail');
   };
 
-  const filteredProducts = products.filter(product => 
-    product.name?.toLowerCase().includes(searchTerm?.toLowerCase() || '')
-  );
-
+// Pastikan 'products' itu beneran array sebelum di-filter
+  const filteredProducts = Array.isArray(products) 
+    ? products.filter(product => {
+        const productName = product?.name || '';
+        const search = searchTerm || '';
+        return productName.toLowerCase().includes(search.toLowerCase());
+      })
+    : [];
+    
   const Lightbox = () => {
     if (!lightboxImg) return null;
     return (
