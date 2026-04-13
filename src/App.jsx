@@ -114,7 +114,7 @@ const App = () => {
   };
 
   const filteredProducts = products.filter(product => 
-    product.name.toLowerCase().includes(searchTerm.toLowerCase())
+    product.name?.toLowerCase().includes(searchTerm?.toLowerCase() || '')
   );
 
   const Lightbox = () => {
@@ -180,7 +180,7 @@ const App = () => {
                 <div key={item._id} className="card compact-card" onClick={() => openDetail(item)}>
                   <div className="card-image-wrapper compact-image">
                     <img 
-                      src={item.photos[0] || 'https://via.placeholder.com/300'} 
+                      src={item?.photos?.[0] || 'https://via.placeholder.com/300'}
                       alt={item.name} 
                       className="card-image"
                     />
