@@ -9,80 +9,42 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // State untuk form & Pop-up
   const [name, setName] = useState('');
-  const [photos, setPhotos] = useState([]);
+  const [photos, setPhotos] = useState([]); // Sekarang ini akan menyimpan File asli
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  const API_URL = 'https://photo-repo-dusky.vercel.app/api/products'; // Pastikan pakai link Vercel backend lu kalau udah live
+  // Link Vercel backend lu
+  const API_URL = '/api/products'; 
+
+  // ==========================================
+  // KONFIGURASI CLOUDINARY (ISI DENGAN DATAMU)
+  // ==========================================
+  const CLOUDINARY_URL = 'https://api.cloudinary.com/v1_1/du9rhqhep/image/upload';
+  const CLOUDINARY_UPLOAD_PRESET = 'katalog_preset'; 
 
   useEffect(() => {
     fetchProducts();
-  }, [view]); // Auto-refresh saat balik ke home
+  }, [view]);
 
-const fetchProducts = async () => {
+  const fetchProducts = async () => {
     try {
       const res = await fetch(API_URL);
-      
-      // Cek kalau API-nya ngasih respon error (misal 404 atau 500)
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-
       const data = await res.json();
-      
-      // Sabuk Pengaman: Pastikan data yang ditarik BENAR-BENAR sebuah array
-      if (Array.isArray(data)) {
-        setProducts(data);
-      } else {
-        console.error('Data dari API bukan array bro:', data);
-        setProducts([]); // Jadikan array kosong biar aman
-      }
-      
+      setProducts(data);
     } catch (error) {
       console.error('Error fetching products:', error);
-      setProducts([]); // Kalau gagal fetch, pastikan products tetap array kosong
     }
   };
-  
-  // FUNGSI KOMPRESI GAMBAR SUPER CEPAT
-  const compressImage = (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target.result;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; // Resolusi maksimal, pas buat HP dan Web
-          const scaleSize = MAX_WIDTH / img.width;
-          
-          canvas.width = MAX_WIDTH;
-          canvas.height = img.height * scaleSize;
 
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          
-          // Kompres jadi format JPEG dengan kualitas 70% (ukuran file turun drastis, kualitas aman)
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-          resolve(compressedBase64);
-        };
-      };
-    });
-  };
-
-  const handleImageChange = async (e) => {
+  // FUNGSI 1: Hanya menyimpan file gambar asli saat dipilih (Tanpa kompresi)
+  const handleImageChange = (e) => {
+    // Mengambil file asli yang diupload user
     const files = Array.from(e.target.files);
-    
-    // Proses kompresi semua gambar yang dipilih
-    const compressedImages = await Promise.all(
-      files.map(file => compressImage(file))
-    );
-    
-    setPhotos(prev => [...prev, ...compressedImages]);
+    // Menambahkan file baru ke state photos tanpa merubah kualitasnya
+    setPhotos(prev => [...prev, ...files]);
   };
 
+  // FUNGSI 2: Upload ke Cloudinary lalu simpan ke Database
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name || photos.length === 0) {
@@ -92,35 +54,56 @@ const fetchProducts = async () => {
 
     setIsLoading(true);
     try {
+      // 1. Siapkan tempat untuk menyimpan link URL dari Cloudinary
+      const uploadedImageUrls = [];
+
+      // 2. Upload setiap foto satu per satu ke Cloudinary
+      for (const file of photos) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+        const cloudinaryResponse = await fetch(CLOUDINARY_URL, {
+          method: 'POST',
+          body: formData,
+        });
+
+        const cloudinaryData = await cloudinaryResponse.json();
+        
+        // Ambil link aman (secure_url) yang diberikan Cloudinary
+        uploadedImageUrls.push(cloudinaryData.secure_url);
+      }
+
+      // 3. Setelah semua foto jadi URL, kirim datanya ke Vercel Backend / MongoDB
       await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, photos })
+        body: JSON.stringify({ 
+          name: name, 
+          photos: uploadedImageUrls // Kirim array URL, bukan Base64 lagi
+        })
       });
       
-      // Tampilkan pop-up setelah sukses
       setShowSuccessModal(true);
     } catch (error) {
-      console.error('Error saving product:', error);
-      alert('Gagal mengirim data. Coba lagi.');
+      console.error('Error proses data:', error);
+      alert('Gagal mengirim data. Pastikan koneksi lancar.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fungsi Action Pop-up
   const handleInputAgain = () => {
     setName('');
     setPhotos([]);
     setShowSuccessModal(false);
-    // Tetap di view 'add'
   };
 
   const handleBackToHome = () => {
     setName('');
     setPhotos([]);
     setShowSuccessModal(false);
-    setView('home'); // Pindah ke home, trigger useEffect untuk fetch ulang
+    setView('home');
   };
 
   const openDetail = (product) => {
@@ -128,15 +111,10 @@ const fetchProducts = async () => {
     setView('detail');
   };
 
-// Pastikan 'products' itu beneran array sebelum di-filter
-  const filteredProducts = Array.isArray(products) 
-    ? products.filter(product => {
-        const productName = product?.name || '';
-        const search = searchTerm || '';
-        return productName.toLowerCase().includes(search.toLowerCase());
-      })
-    : [];
-    
+  const filteredProducts = products.filter(product => 
+    product.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const Lightbox = () => {
     if (!lightboxImg) return null;
     return (
@@ -147,7 +125,6 @@ const fetchProducts = async () => {
     );
   };
 
-  // Komponen Pop-up Modal
   const SuccessModal = () => {
     if (!showSuccessModal) return null;
     return (
@@ -155,7 +132,7 @@ const fetchProducts = async () => {
         <div className="modal-content fade-in">
           <div className="success-icon">✓</div>
           <h3>Berhasil!</h3>
-          <p>Data produk telah tersimpan dengan cepat ke database.</p>
+          <p>Gambar resolusi tinggi telah di-upload ke Cloudinary dan data tersimpan.</p>
           <div className="modal-actions">
             <button className="btn-secondary" onClick={handleBackToHome}>Kembali ke Beranda</button>
             <button className="btn-primary" onClick={handleInputAgain}>Mau Input Lagi</button>
@@ -170,7 +147,6 @@ const fetchProducts = async () => {
       <Lightbox />
       <SuccessModal />
 
-      {/* VIEW: HOME */}
       {view === 'home' && (
         <div className="view-container fade-in">
           <header className="header">
@@ -200,7 +176,7 @@ const fetchProducts = async () => {
                 <div key={item._id} className="card compact-card" onClick={() => openDetail(item)}>
                   <div className="card-image-wrapper compact-image">
                     <img 
-                      src={item?.photos?.[0] || 'https://via.placeholder.com/300'}
+                      src={item.photos[0] || 'https://via.placeholder.com/300'} 
                       alt={item.name} 
                       className="card-image"
                     />
@@ -215,7 +191,6 @@ const fetchProducts = async () => {
         </div>
       )}
 
-      {/* VIEW: ADD PRODUCT */}
       {view === 'add' && (
         <div className="view-container fade-in form-container">
           <header className="header-simple">
@@ -237,7 +212,7 @@ const fetchProducts = async () => {
             </div>
 
             <div className="form-group">
-              <label>Foto Produk (Bisa lebih dari 1)</label>
+              <label>Foto Produk Asli (Resolusi Tinggi)</label>
               <div className="file-upload-wrapper">
                 <input 
                   type="file" 
@@ -249,22 +224,27 @@ const fetchProducts = async () => {
               </div>
             </div>
 
+            {/* PREVIEW GAMBAR ASLI MENGGUNAKAN OBJECT URL */}
             {photos.length > 0 && (
               <div className="preview-grid">
-                {photos.map((src, index) => (
-                  <img key={index} src={src} alt="Preview" className="preview-thumb" />
+                {photos.map((file, index) => (
+                  <img 
+                    key={index} 
+                    src={URL.createObjectURL(file)} 
+                    alt="Preview" 
+                    className="preview-thumb" 
+                  />
                 ))}
               </div>
             )}
 
             <button type="submit" className="btn-primary btn-block" disabled={isLoading}>
-              {isLoading ? 'Mengirim Data Cepat...' : 'Submit Produk'}
+              {isLoading ? 'Mengunggah ke Cloudinary...' : 'Submit Produk'}
             </button>
           </form>
         </div>
       )}
 
-      {/* VIEW: PRODUCT DETAIL */}
       {view === 'detail' && selectedProduct && (
         <div className="view-container fade-in">
           <header className="header-simple">
